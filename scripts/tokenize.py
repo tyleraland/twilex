@@ -76,10 +76,9 @@ def parse_message(message):
                   [i[0] for i in items[1:]] + [1+len(words)])
     entries = [(words[l:h]) for l,h in indices]
     
-    parsed = imap(parse_entry, entries)
-    
-    return imap(lambda entry: entry[0:1] + [dt] + entry[1:],
-                parsed)
+    # Prepend each list of tokens with the datetime it was logged for
+    return ([dt] + entry for entry in imap(parse_entry,
+                                           entries))
 
 # Takes in rows of messages, returns rows of records
 def tokenize(rows):
