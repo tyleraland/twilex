@@ -165,6 +165,8 @@ def main():
     con = sqlite3.connect('../etcetera/feeds.db')
     cur = con.cursor()
 
+    # Statement to grab tweets and associate with each one the GPS coordinate pair
+    # that was taken nearest to each tweet
     statement = """
     select substr(datetime, 0, 11) as t_date, 
            substr(datetime, 12, 8) as t_time,
@@ -180,7 +182,10 @@ def main():
            )) as seconds_away
     from twitter
      join (
-       select substr(datetime, 0, 11) as g_date, substr(datetime, 12, 8) as g_time, latitude, longitude 
+       select substr(datetime, 0, 11) as g_date, 
+              substr(datetime, 12, 8) as g_time, 
+              latitude, 
+              longitude 
        from gps
        group by substr(g_time, 0, 3)
      ) 
@@ -197,7 +202,6 @@ def main():
         parsed = parse_tweet(tweet)
         for p in parsed:
             print(p)
-        break
     #for r in chain.from_iterable(imap(parse_tweet, rows)):
     #    print(r)
     #    # insert into database ... perhaps using etcetera's dbinsert ?
