@@ -128,15 +128,17 @@ def parse_tweet(tweet):
     text = tweet[1]
     # Leading 'r' indicates a record
     if text[0].lower() != 'r':
-        return None
+        return iter([])
 
     words = text.split()[1:] # Ignore the first 'r'
 
     timestamp = [w for w in words if w[0] == '$']
     if timestamp:
         assert(len(timestamp) == 1)
-        dt1,dt2 = parse_timestamp(timestamp[0], datetimestring)
+        dt1, dt2 = parse_timestamp(timestamp[0], datetimestring)
         words.remove(timestamp[0])
+    else:
+        dt1, dt2 = datetimestring, ''
 
     # Each item entry is alphabetical and followed by groups of 
     # period-separated-integers separated by spaces
@@ -161,12 +163,11 @@ def localize(tweet):
     return [dt.strftime("%Y-%m-%dT%H:%M:%S"),
             tweet[4]]
 
-def main():
-    con = sqlite3.connect('../etcetera/feeds.db')
+def fetch_rows(database):
+    con = sqlite3.connect(database)
     cur = con.cursor()
-
-    # Statement to grab tweets and associate with each one the GPS coordinate pair
-    # that was taken nearest to each tweet
+    # Statement to grab tweets and associate with each one the GPS coordinate 
+    # pair temporally closest to each tweet
     statement = """
     select substr(datetime, 0, 11) as t_date, 
            substr(datetime, 12, 8) as t_time,
@@ -193,18 +194,61 @@ def main():
     group by t_date, t_time, message
     order by t_date asc, t_time asc, seconds_away asc
     """
-    rows = cur.execute(statement).fetchall()
-    # For development
-    #rows = [('datetime', 'R $2014-09-27T2230.2014-09-28T120 sq 45.5.5 75.5.5.4 65.4')]
-    #rows = imap(localize, rows)
+    return cur.execute(statement).fetchall()
+
+def dbcreate(database):
+    con = sqlite3.connect(database)
+    cur = con.cursor()
+    statements = [
+    """
+    CREATE table if not exists
+    USER_ENTRIES( shortname TEXT,
+                  datetime1 TEXT,
+                  datetime2 TEXT,
+                  magnitude TEXT,
+                  sets TEXT,
+                  counts TEXT,
+                  UNIQUE(shortname,datetime1,datetime2)
+                on conflict replace);
+    """,
+    """
+    CREATE table if not exists
+    ITEM_INFO( shortname TEXT,
+               linked_table TEXT, -- E.g. Food
+               table_id TEXT,     -- Index into linked_table
+               multiplier REAL,   -- 
+               units TEXT,        -- How is it being measured?
+               UNIQUE(shortname)
+             on conflict replace)
+
+    """]
+    for statement in statements:
+        cur.execute(statement)
+    con.commit()
+
+def dbinsert(database, table, rows):
+    con = sqlite3.connect(database)
+    cur = con.cursor()
+
+    con.text_factory = str
     for row in rows:
+        statement = "insert or replace into {} values ({})".format(
+            table, ','.join(['?' for field in row])
+        )
+        cur.execute(statement, row)
+    con.commit()
+
+def main():
+
+    dbcreate('tracking.db')
+    # fetch_rows grabs tweet,gps rows from database
+    # Next we shift that tweet's timestamp from UTC to its local time
+    # parse each row into 0 or many entries
+    # Insert all entries into the database
+    for row in fetch_rows('../etcetera/feeds.db'):
         tweet = localize(row)
         parsed = parse_tweet(tweet)
-        for p in parsed:
-            print(p)
-    #for r in chain.from_iterable(imap(parse_tweet, rows)):
-    #    print(r)
-    #    # insert into database ... perhaps using etcetera's dbinsert ?
+        dbinsert('tracking.db', 'user_entries', parsed)
 
 if __name__ == '__main__':
     sys.exit(main())
