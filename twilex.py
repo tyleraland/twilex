@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
+activate_this = '/Users/tal/sandbox/bin/activate_this.py'
+execfile(activate_this, dict(__file__=activate_this))
+
 import sys
-from scripts.tokenize import tokenize
+import argparse
 import sqlite3
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -163,9 +166,13 @@ def localize(tweet):
     return [dt.strftime("%Y-%m-%dT%H:%M:%S"),
             tweet[4]]
 
-def fetch_rows(database):
+def fetch_rows(database, twitter_table, gps_table):
     con = sqlite3.connect(database)
     cur = con.cursor()
+
+    for table_name in [twitter_table.lower(), gps_table.lower()]:
+        for bad in ['select','drop','from','where','insert',' ']:
+            assert(bad not in table_name)
     # Statement to grab tweets and associate with each one the GPS coordinate 
     # pair temporally closest to each tweet
     statement = """
@@ -181,19 +188,19 @@ def fetch_rows(database):
                 60  * cast(substr(substr(datetime, 12, 8), 4, 2) as decimal) +
                       cast(substr(substr(datetime, 12, 8), 7, 2) as decimal)
            )) as seconds_away
-    from twitter
+    from {}
      join (
        select substr(datetime, 0, 11) as g_date, 
               substr(datetime, 12, 8) as g_time, 
               latitude, 
               longitude 
-       from gps
+       from {}
        group by substr(g_time, 0, 3)
      ) 
     where t_date == g_date
     group by t_date, t_time, message
     order by t_date asc, t_time asc, seconds_away asc
-    """
+    """.format(twitter_table, gps_table)
     return cur.execute(statement).fetchall()
 
 def dbcreate(database):
@@ -238,14 +245,25 @@ def dbinsert(database, table, rows):
         cur.execute(statement, row)
     con.commit()
 
+def get_args():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--twitter_gps', nargs=3, 
+                        default=['/Users/tal/data/feeds.db','twitter','gps'],
+                        help="Database path and table names containing twitter and gps data respectively")
+    parser.add_argument('--target', nargs=2,
+                        default=['/Users/tal/data/selftracking.db','manual_entries'],
+                        help="Database and table to insert parsed entries")
+    return parser.parse_args()                   
 def main():
+    args = get_args()
 
-    dbcreate('tracking.db')
+    dbcreate(args.target[0])
     # fetch_rows grabs tweet,gps rows from database
     # Next we shift that tweet's timestamp from UTC to its local time
     # parse each row into 0 or many entries
     # Insert all entries into the database
-    for row in fetch_rows('../etcetera/feeds.db'):
+    for row in fetch_rows(*args.twitter_gps):
         tweet = localize(row)
         parsed = parse_tweet(tweet)
         dbinsert('tracking.db', 'user_entries', parsed)
